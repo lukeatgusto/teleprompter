@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teleprompter for macOS</title>
+<meta property="og:title" content="Teleprompter for macOS">
+<meta property="og:description" content="A translucent overlay that floats on top of your screen. Read your script while seeing through to your video call, slides, or notes. Voice-driven scrolling, click-through, markdown rendering.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Teleprompter for macOS">
+<meta name="twitter:description" content="Translucent overlay with voice-driven scrolling. Read your script while seeing through to your video call.">
+<meta name="twitter:image" content="og-image.png">
+<meta name="description" content="A translucent teleprompter overlay for macOS with voice-driven scrolling, click-through transparency, and markdown rendering.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%23d45515'/><rect x='19' y='22' width='28' height='6' rx='2' fill='white' opacity='.3'/><rect x='19' y='32' width='50' height='4' rx='2' fill='white' opacity='.4'/><rect x='19' y='40' width='42' height='4' rx='2' fill='white' opacity='.35'/><rect x='19' y='48' width='54' height='4' rx='2' fill='white' opacity='.3'/><rect x='19' y='56' width='35' height='4' rx='2' fill='white' opacity='.2'/><path d='M30 25h40v12H58v48H42V37H30z' fill='rgba(50,18,5,.9)'/></svg>">
+<style>
+  :root {
+    --orange: #e06020;
+    --orange-light: #f08040;
+    --orange-glow: rgba(240,128,64,0.12);
+    --bg: #0c0c10;
+    --bg-surface: #141418;
+    --bg-card: #1a1a20;
+    --bg-card-hover: #1e1e26;
+    --border: #2a2a35;
+    --border-light: #333340;
+    --text: #e4e4ec;
+    --text-dim: #8888a0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* Animated background */
+  .bg-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    opacity: 0.06;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Journey nav */
+  .journey {
+    position: fixed;
+    left: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .journey a {
+    display: flex; align-items: center; gap: 10px;
+    text-decoration: none; padding: 8px 0;
+  }
+  .journey-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #333; border: 2px solid #444;
+    transition: all 0.3s; flex-shrink: 0;
+  }
+  .journey a.active .journey-dot {
+    background: var(--orange); border-color: var(--orange-light);
+    box-shadow: 0 0 8px var(--orange-glow);
+  }
+  .journey-label {
+    font-size: 10px; color: #444;
+    white-space: nowrap; transition: color 0.3s;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .journey a.active .journey-label { color: var(--text-dim); }
+  .journey-line { width: 1px; height: 14px; background: #2a2a35; }
+
+  @media (max-width: 960px) { .journey { display: none; } }
+
+  /* Cards */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 40px;
+    margin-bottom: 24px;
+    position: relative;
+    z-index: 1;
+  }
+  .card-glow {
+    box-shadow: 0 0 80px -20px rgba(224,96,32,0.08);
+  }
+
+  .page { max-width: 700px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+  /* Hero */
+  section.hero {
+    text-align: center;
+    padding: 64px 24px 40px;
+    max-width: 700px;
+    margin: 0 auto;
+    position: relative; z-index: 1;
+  }
+  .hero-icon {
+    width: 88px; height: 88px;
+    border-radius: 20px;
+    margin: 0 auto 24px;
+    box-shadow: 0 8px 32px rgba(224,96,32,0.25);
+  }
+  .hero h1 {
+    font-size: 40px; font-weight: 700;
+    letter-spacing: -1px; margin-bottom: 10px;
+  }
+  .hero h1 span { color: var(--orange-light); }
+  .hero p {
+    font-size: 17px; color: var(--text-dim);
+    max-width: 480px; margin: 0 auto;
+  }
+  .hero-links {
+    display: flex; gap: 12px;
+    justify-content: center; margin-top: 24px;
+  }
+  .hero-links a {
+    color: var(--text-dim); font-size: 13px; text-decoration: none;
+    padding: 8px 18px; border: 1px solid var(--border);
+    border-radius: 8px; transition: all 0.2s;
+  }
+  .hero-links a:hover { border-color: var(--orange); color: var(--text); }
+  .hero-links a.primary {
+    background: var(--orange); border-color: var(--orange); color: #fff; font-weight: 500;
+  }
+  .hero-links a.primary:hover { background: var(--orange-light); }
+
+  /* Section titles */
+  .section-title {
+    font-size: 22px; font-weight: 700; margin-bottom: 20px;
+  }
+  .section-subtitle {
+    font-size: 14px; color: var(--text-dim); margin: -16px 0 20px;
+  }
+
+  /* Demo */
+  section.demo { padding: 0 0 32px; }
+  .demo-stage {
+    max-width: 620px; margin: 0 auto;
+    position: relative; height: 360px;
+  }
+  .demo-doc {
+    position: absolute;
+    top: 16px; left: 16px; right: 90px;
+    background: #fff; border-radius: 8px;
+    padding: 24px 28px; color: #333;
+    font-size: 12px; line-height: 1.7;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    height: 290px; overflow: hidden;
+  }
+  .demo-doc h3 { color: #111; font-size: 14px; margin-bottom: 6px; }
+  .demo-doc p { margin: 4px 0; color: #555; font-size: 11px; }
+  .demo-doc .bar { height: 6px; background: #e8e8e8; border-radius: 3px; margin: 6px 0; }
+  .demo-doc .bar.w60 { width: 60%; } .demo-doc .bar.w80 { width: 80%; } .demo-doc .bar.w45 { width: 45%; }
+  .demo-doc .chart { display: flex; gap: 5px; align-items: flex-end; height: 50px; margin-top: 10px; }
+  .demo-doc .chart-bar { width: 16px; background: #e0e0e0; border-radius: 2px 2px 0 0; }
+
+  .demo-overlay {
+    position: absolute;
+    top: 32px; right: 0; left: 50px;
+    background: rgba(0,0,0,0.72);
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.06);
+    height: 310px;
+    animation: slideIn 16s ease-in-out infinite;
+  }
+  @keyframes slideIn {
+    0%, 3% { transform: translateX(80px) scale(0.97); opacity: 0; }
+    10%, 90% { transform: translateX(0) scale(1); opacity: 1; }
+    97%, 100% { transform: translateX(80px) scale(0.97); opacity: 0; }
+  }
+  .ov-titlebar {
+    height: 28px; background: rgba(255,255,255,0.04);
+    display: flex; align-items: center; padding: 0 10px; gap: 5px;
+  }
+  .ov-dot { width: 9px; height: 9px; border-radius: 50%; }
+  .ov-toolbar {
+    height: 28px; background: rgba(0,0,0,0.8);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; padding: 0 8px; gap: 4px; font-size: 10px;
+  }
+  .ov-btn {
+    background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.5);
+    border-radius: 3px; padding: 1px 5px; font-size: 9px;
+  }
+  .ov-content {
+    padding: 16px 24px; font-size: 14px; color: #f0f0f0;
+    overflow: hidden; height: 222px; position: relative;
+  }
+  .ov-content h2 { font-size: 1.3em; margin-bottom: 6px; color: #fff; }
+  .ov-content p { margin: 5px 0; font-size: 13px; }
+  .ov-scroll-inner { animation: ovScroll 16s ease-in-out infinite; }
+  @keyframes ovScroll {
+    0%, 8% { transform: translateY(0); }
+    45%, 55% { transform: translateY(-160px); }
+    92%, 100% { transform: translateY(0); }
+  }
+  .ov-word { transition: opacity 0.4s, background 0.4s; border-radius: 2px; padding: 0 1px; }
+  .ov-word.spoken { opacity: 0.35; }
+  .ov-word.current { background: rgba(255,255,100,0.22); }
+
+  /* Features */
+  .features-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+  }
+  .feat {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px;
+    transition: border-color 0.2s;
+  }
+  .feat:hover { border-color: var(--border-light); }
+  .feat-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .feat-icon { font-size: 18px; }
+  .feat h3 { font-size: 14px; font-weight: 600; }
+  .feat p { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  /* Markdown icon */
+  .md-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 16px;
+    border: 1.5px solid currentColor; border-radius: 2px;
+    font-size: 9px; font-weight: 800; font-family: "SF Mono", monospace;
+    line-height: 1; color: inherit;
+  }
+
+  /* Install */
+  .install-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px; padding: 22px; margin-bottom: 12px;
+  }
+  .install-card h3 {
+    font-size: 15px; font-weight: 600; margin-bottom: 10px; color: var(--orange-light);
+  }
+  .install-card p { font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+  pre {
+    background: rgba(0,0,0,0.5);
+    border-radius: 6px; padding: 12px 14px;
+    overflow-x: auto;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 12px; color: #d0d0d8; line-height: 1.6;
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+  pre .c { color: rgba(255,255,255,0.25); }
+
+  /* Tips */
+  .tips { display: flex; flex-direction: column; gap: 14px; }
+  .tip { display: flex; gap: 14px; }
+  .tip-num {
+    width: 26px; height: 26px;
+    background: var(--orange); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 12px; flex-shrink: 0; margin-top: 1px;
+  }
+  .tip h4 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .tip p { font-size: 12px; color: var(--text-dim); }
+
+  /* Shortcuts */
+  .shortcut-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .sc {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 12px;
+    background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px;
+  }
+  .sc-label { font-size: 12px; color: var(--text-dim); }
+  .sc-key {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px; padding: 1px 8px;
+    font-family: "SF Mono", monospace; font-size: 11px; color: #ccc;
+  }
+
+  /* Footer */
+  .footer {
+    text-align: center; padding: 28px 24px;
+    border-top: 1px solid var(--border);
+    font-size: 12px; color: #444;
+    position: relative; z-index: 1;
+  }
+  .footer a { color: var(--orange-light); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 28px; }
+    .features-grid, .shortcut-grid { grid-template-columns: 1fr; }
+    .demo-doc { display: none; }
+    .demo-overlay { left: 0; right: 0; }
+    .card { padding: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas class="bg-canvas" id="bg"></canvas>
+
+<nav class="journey" id="journey">
+  <a href="#hero" class="active"><div class="journey-dot"></div><span class="journey-label">Overview</span></a>
+  <div class="journey-line"></div>
+  <a href="#demo"><div class="journey-dot"></div><span class="journey-label">Demo</span></a>
+  <div class="journey-line"></div>
+  <a href="#features"><div class="journey-dot"></div><span class="journey-label">Features</span></a>
+  <div class="journey-line"></div>
+  <a href="#install"><div class="journey-dot"></div><span class="journey-label">Install</span></a>
+  <div class="journey-line"></div>
+  <a href="#tips"><div class="journey-dot"></div><span class="journey-label">Tips</span></a>
+  <div class="journey-line"></div>
+  <a href="#shortcuts"><div class="journey-dot"></div><span class="journey-label">Keys</span></a>
+</nav>
+
+<!-- Hero -->
+<section class="hero" id="hero">
+  <canvas class="hero-icon" id="icon" width="88" height="88"></canvas>
+  <h1><span>Teleprompter</span> for macOS</h1>
+  <p>A translucent overlay that floats on top of your screen. Read your script while seeing through to your video call, slides, or notes.</p>
+  <div class="hero-links">
+    <a href="#install" class="primary">Install</a>
+    <a href="https://github.com/lukeatgusto/teleprompter">GitHub</a>
+  </div>
+</section>
+
+<!-- Demo -->
+<section class="demo" id="demo">
+  <div class="demo-stage">
+    <div class="demo-doc">
+      <h3>Q3 Revenue Analysis</h3>
+      <p>Total revenue reached $4.2M for the quarter, representing 32% YoY growth.</p>
+      <div class="bar w80"></div><div class="bar w60"></div><div class="bar w45"></div>
+      <div class="chart">
+        <div class="chart-bar" style="height:22px"></div>
+        <div class="chart-bar" style="height:32px"></div>
+        <div class="chart-bar" style="height:28px"></div>
+        <div class="chart-bar" style="height:42px"></div>
+        <div class="chart-bar" style="height:38px"></div>
+        <div class="chart-bar" style="height:50px"></div>
+      </div>
+      <p>Enterprise grew 48% with 12 new accounts. SMB retention at 96%.</p>
+      <div class="bar w80"></div><div class="bar w60"></div>
+    </div>
+    <div class="demo-overlay">
+      <div class="ov-titlebar">
+        <div class="ov-dot" style="background:#ff5f57"></div>
+        <div class="ov-dot" style="background:#febc2e"></div>
+        <div class="ov-dot" style="background:#28c840"></div>
+      </div>
+      <div class="ov-toolbar">
+        <span class="ov-btn">&#x1F4C2;</span>
+        <span class="ov-btn" style="background:rgba(100,200,255,0.3);color:#fff">&#x1F3A4;</span>
+        <span class="ov-btn">&#x2195;</span>
+      </div>
+      <div class="ov-content">
+        <div class="ov-scroll-inner" id="ov-text">
+          <h2>Quarterly Business Review</h2>
+          <p><span class="ov-word">Thank</span> <span class="ov-word">you</span> <span class="ov-word">all</span> <span class="ov-word">for</span> <span class="ov-word">joining</span> <span class="ov-word">today.</span> <span class="ov-word">I</span> <span class="ov-word">want</span> <span class="ov-word">to</span> <span class="ov-word">walk</span> <span class="ov-word">through</span> <span class="ov-word">our</span> <span class="ov-word">progress</span> <span class="ov-word">this</span> <span class="ov-word">quarter</span> <span class="ov-word">and</span> <span class="ov-word">share</span> <span class="ov-word">where</span> <span class="ov-word">we're</span> <span class="ov-word">headed</span> <span class="ov-word">next.</span></p>
+          <p style="margin-top:10px;font-weight:600;color:#eee">Key Highlights</p>
+          <p><span class="ov-word">Revenue</span> <span class="ov-word">grew</span> <span class="ov-word">32%</span> <span class="ov-word">year-over-year,</span> <span class="ov-word">driven</span> <span class="ov-word">by</span> <span class="ov-word">strong</span> <span class="ov-word">platform</span> <span class="ov-word">adoption.</span> <span class="ov-word">Customer</span> <span class="ov-word">retention</span> <span class="ov-word">remained</span> <span class="ov-word">above</span> <span class="ov-word">95%</span> <span class="ov-word">for</span> <span class="ov-word">the</span> <span class="ov-word">sixth</span> <span class="ov-word">consecutive</span> <span class="ov-word">quarter.</span></p>
+          <p><span class="ov-word">Our</span> <span class="ov-word">expansion</span> <span class="ov-word">into</span> <span class="ov-word">new</span> <span class="ov-word">markets</span> <span class="ov-word">exceeded</span> <span class="ov-word">targets</span> <span class="ov-word">by</span> <span class="ov-word">15%,</span> <span class="ov-word">with</span> <span class="ov-word">strong</span> <span class="ov-word">results</span> <span class="ov-word">in</span> <span class="ov-word">enterprise.</span></p>
+          <p style="margin-top:10px;font-weight:600;color:#eee">Looking Ahead</p>
+          <p><span class="ov-word">For</span> <span class="ov-word">Q3,</span> <span class="ov-word">we're</span> <span class="ov-word">focused</span> <span class="ov-word">on</span> <span class="ov-word">scaling</span> <span class="ov-word">infrastructure,</span> <span class="ov-word">launching</span> <span class="ov-word">the</span> <span class="ov-word">partner</span> <span class="ov-word">program,</span> <span class="ov-word">and</span> <span class="ov-word">deepening</span> <span class="ov-word">our</span> <span class="ov-word">AI</span> <span class="ov-word">capabilities.</span></p>
+          <p><span class="ov-word">We</span> <span class="ov-word">believe</span> <span class="ov-word">these</span> <span class="ov-word">investments</span> <span class="ov-word">position</span> <span class="ov-word">us</span> <span class="ov-word">well</span> <span class="ov-word">for</span> <span class="ov-word">sustained</span> <span class="ov-word">growth</span> <span class="ov-word">through</span> <span class="ov-word">the</span> <span class="ov-word">rest</span> <span class="ov-word">of</span> <span class="ov-word">the</span> <span class="ov-word">year.</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="page">
+    <div class="card card-glow">
+      <div class="section-title">Features</div>
+      <div class="features-grid">
+        <div class="feat"><div class="feat-top"><span class="feat-icon">&#x1F3A4;</span><h3>Voice-Driven Scrolling</h3></div><p>Speech recognition follows your pace. Text scrolls as you speak.</p></div>
+        <div class="feat"><div class="feat-top"><span class="feat-icon">&#x1F5B1;</span><h3>Click-Through</h3></div><p>Click on windows behind the overlay without switching focus.</p></div>
+        <div class="feat"><div class="feat-top"><span class="md-icon">M&#x2193;</span><h3>Markdown</h3></div><p>Headers, bold, italic, lists, code blocks. Write in markdown, present beautifully.</p></div>
+        <div class="feat"><div class="feat-top"><span class="feat-icon">&#x1F3A8;</span><h3>Adjustable</h3></div><p>Opacity, text size, dark mode. Tune the overlay for any background.</p></div>
+        <div class="feat"><div class="feat-top"><span class="feat-icon">&#x1F4CC;</span><h3>Always On Top</h3></div><p>Floats above all windows on all desktops. Resize and position freely.</p></div>
+        <div class="feat"><div class="feat-top"><span class="feat-icon">&#x1FA9E;</span><h3>Mirror Mode</h3></div><p>Flip text for beam splitter setups. Press M to toggle.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Install -->
+<section id="install">
+  <div class="page">
+    <div class="card">
+      <div class="section-title">Install</div>
+      <p class="section-subtitle">Compiles from source on your Mac. No signing, no Gatekeeper.</p>
+      <div class="install-card">
+        <h3>With Claude Code</h3>
+        <pre>/plugin update gusto-gists
+/plugin install teleprompter@gusto-gists
+
+<span class="c"># Then run:</span>
+/teleprompter</pre>
+      </div>
+      <div class="install-card">
+        <h3>Manual</h3>
+        <p>Requires Xcode Command Line Tools</p>
+        <pre><span class="c"># Clone and compile</span>
+git clone https://github.com/lukeatgusto/teleprompter.git /tmp/tp
+swiftc /tmp/tp/teleprompter.swift -o ~/.local/bin/teleprompter \
+  -framework Cocoa -framework WebKit \
+  -framework Speech -framework AVFoundation
+rm -rf /tmp/tp
+
+<span class="c"># Run</span>
+~/.local/bin/teleprompter</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tips -->
+<section id="tips">
+  <div class="page">
+    <div class="card">
+      <div class="section-title">Best Practices</div>
+      <div class="tips">
+        <div class="tip"><div class="tip-num">1</div><div><h4>Position near your camera</h4><p>Overlap the teleprompter with your webcam to maintain eye contact while reading.</p></div></div>
+        <div class="tip"><div class="tip-num">2</div><div><h4>Tune opacity to your background</h4><p>Light desktop? Lower opacity. Dark? Raise it. Readable text, visible background.</p></div></div>
+        <div class="tip"><div class="tip-num">3</div><div><h4>Use voice mode for presentations</h4><p>The mic follows your pace. No fiddling with scroll speed.</p></div></div>
+        <div class="tip"><div class="tip-num">4</div><div><h4>Dark mode for light backgrounds</h4><p>Hit the moon icon for black text when overlaying bright slides.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Shortcuts -->
+<section id="shortcuts">
+  <div class="page">
+    <div class="card">
+      <div class="section-title">Keyboard Shortcuts</div>
+      <div class="shortcut-grid">
+        <div class="sc"><span class="sc-label">Play / Pause</span><span class="sc-key">Space</span></div>
+        <div class="sc"><span class="sc-label">Speed up</span><span class="sc-key">&uarr;</span></div>
+        <div class="sc"><span class="sc-label">Speed down</span><span class="sc-key">&darr;</span></div>
+        <div class="sc"><span class="sc-label">Bigger text</span><span class="sc-key">]</span></div>
+        <div class="sc"><span class="sc-label">Smaller text</span><span class="sc-key">[</span></div>
+        <div class="sc"><span class="sc-label">Toggle mic</span><span class="sc-key">V</span></div>
+        <div class="sc"><span class="sc-label">Manual scroll</span><span class="sc-key">S</span></div>
+        <div class="sc"><span class="sc-label">Open file</span><span class="sc-key">O</span></div>
+        <div class="sc"><span class="sc-label">Mirror mode</span><span class="sc-key">M</span></div>
+        <div class="sc"><span class="sc-label">Reset to top</span><span class="sc-key">R</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="footer">
+  Built with Swift. No dependencies. <a href="https://github.com/lukeatgusto/teleprompter">View on GitHub</a> · Feature requests? <a href="https://gusto.enterprise.slack.com/user/@luke.zeller">Ping @luke on Slack</a>
+</div>
+
+<script>
+// Word pacing
+const words = document.querySelectorAll('.ov-word');
+const CYCLE = 16000;
+const START = 0.12, END = 0.88;
+let wIdx = 0;
+function pace() {
+  const p = (Date.now() % CYCLE) / CYCLE;
+  if (p < START || p > END) {
+    if (wIdx > 0) { words.forEach(w => w.classList.remove('spoken','current')); wIdx = 0; }
+  } else {
+    const t = Math.floor(((p - START) / (END - START)) * words.length);
+    while (wIdx < t && wIdx < words.length) {
+      words[wIdx].classList.add('spoken');
+      words[wIdx].classList.remove('current');
+      wIdx++;
+    }
+    words.forEach(w => w.classList.remove('current'));
+    if (wIdx < words.length) words[wIdx].classList.add('current');
+  }
+  requestAnimationFrame(pace);
+}
+requestAnimationFrame(pace);
+
+// Journey nav
+const secs = ['hero','demo','features','install','tips','shortcuts'];
+const links = document.querySelectorAll('.journey a');
+window.addEventListener('scroll', () => {
+  let cur = secs[0];
+  for (const id of secs) {
+    const el = document.getElementById(id);
+    if (el && el.getBoundingClientRect().top < window.innerHeight * 0.4) cur = id;
+  }
+  links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
+});
+
+// App icon
+const c = document.getElementById('icon');
+const ctx = c.getContext('2d');
+const S = 88;
+let g = ctx.createLinearGradient(S/2, 0, S/2, S);
+g.addColorStop(0, '#d45515'); g.addColorStop(1, '#a5300a');
+ctx.fillStyle = g;
+ctx.beginPath(); ctx.roundRect(0, 0, S, S, S*0.18); ctx.fill();
+const lx=S*0.19,lmx=S*0.81,lsy=S*0.13,lsp=S*0.082;
+const ws=[0.50,0.85,0.70,0,0.90,0.55,0.75,0.60,0.40];
+for(let i=0;i<ws.length;i++){
+  if(!ws[i])continue;
+  const y=lsy+i*lsp,p=i/(ws.length-1);
+  let a;if(p<0.15)a=0.2;else if(p<0.5)a=0.5;else a=Math.max(0.1,0.5-(p-0.5)*1.2);
+  ctx.beginPath();ctx.roundRect(lx,y,(lmx-lx)*ws[i],i===0?S*0.016:S*0.011,2);
+  ctx.fillStyle=`rgba(255,255,255,${a*0.9})`;ctx.fill();
+}
+const sc=0.85,cx=S/2,r=S*0.012;
+const cW=(210/256)*S*sc,cH=(44/256)*S*sc,sW=(40/256)*S*sc,sH=(155/256)*S*sc,cY=S*0.22;
+function dT(ox,oy,col){
+  ctx.fillStyle=col;ctx.beginPath();
+  ctx.moveTo(cx-cW/2+r+ox,cY+oy);ctx.lineTo(cx+cW/2-r+ox,cY+oy);
+  ctx.quadraticCurveTo(cx+cW/2+ox,cY+oy,cx+cW/2+ox,cY+r+oy);
+  ctx.lineTo(cx+cW/2+ox,cY+cH+oy);ctx.lineTo(cx+sW/2+ox,cY+cH+oy);
+  ctx.lineTo(cx+sW/2+ox,cY+cH+sH-r+oy);
+  ctx.quadraticCurveTo(cx+sW/2+ox,cY+cH+sH+oy,cx+sW/2-r+ox,cY+cH+sH+oy);
+  ctx.lineTo(cx-sW/2+r+ox,cY+cH+sH+oy);
+  ctx.quadraticCurveTo(cx-sW/2+ox,cY+cH+sH+oy,cx-sW/2+ox,cY+cH+sH-r+oy);
+  ctx.lineTo(cx-sW/2+ox,cY+cH+oy);ctx.lineTo(cx-cW/2+ox,cY+cH+oy);
+  ctx.lineTo(cx-cW/2+ox,cY+r+oy);
+  ctx.quadraticCurveTo(cx-cW/2+ox,cY+oy,cx-cW/2+r+ox,cY+oy);
+  ctx.closePath();ctx.fill();
+}
+dT(1.5,1.5,'rgba(0,0,0,0.15)');
+dT(0,0,'rgba(50,18,5,0.92)');
+
+// Animated background — slow drifting orbs
+const bgC = document.getElementById('bg');
+const bgCtx = bgC.getContext('2d');
+let W, H;
+
+function resizeBg() {
+  W = bgC.width = window.innerWidth;
+  H = bgC.height = window.innerHeight;
+}
+resizeBg();
+window.addEventListener('resize', resizeBg);
+
+const orbs = [
+  { x: 0.25, y: 0.1, r: 0.45, color: [224, 96, 32], a: 0.36, sx: 0.15, sy: 0.10, px: 0 },
+  { x: 0.75, y: 0.35, r: 0.38, color: [160, 50, 200], a: 0.20, sx: 0.12, sy: 0.14, px: 2 },
+  { x: 0.15, y: 0.65, r: 0.35, color: [240, 120, 40], a: 0.24, sx: 0.14, sy: 0.08, px: 4 },
+  { x: 0.85, y: 0.75, r: 0.32, color: [100, 70, 220], a: 0.16, sx: 0.10, sy: 0.16, px: 6 },
+  { x: 0.5, y: 0.45, r: 0.50, color: [224, 80, 20], a: 0.20, sx: 0.08, sy: 0.06, px: 8 },
+];
+
+function drawBg(t) {
+  bgCtx.clearRect(0, 0, W, H);
+
+  // Account for scroll — orbs drift with parallax
+  const scrollY = window.scrollY * 0.15;
+
+  for (const o of orbs) {
+    const time = t * 0.001;
+    const ox = (o.x + Math.sin(time * o.sx + o.px) * 0.15) * W;
+    const oy = (o.y + Math.cos(time * o.sy + o.px) * 0.12) * H - scrollY;
+    const or = o.r * Math.min(W, H);
+
+    const grad = bgCtx.createRadialGradient(ox, oy, 0, ox, oy, or);
+    grad.addColorStop(0, `rgba(${o.color.join(',')},${o.a})`);
+    grad.addColorStop(0.6, `rgba(${o.color.join(',')},${o.a * 0.4})`);
+    grad.addColorStop(1, `rgba(${o.color.join(',')},0)`);
+    bgCtx.fillStyle = grad;
+    bgCtx.fillRect(0, 0, W, H);
+  }
+
+  requestAnimationFrame(drawBg);
+}
+requestAnimationFrame(drawBg);
+</script>
+</body>
+</html>
