@@ -27,7 +27,7 @@ Requires macOS with Xcode Command Line Tools (`xcode-select --install`).
 ### Manual
 
 ```bash
-git clone https://github.com/lukezeller/teleprompter.git
+git clone https://github.com/lukeatgusto/teleprompter.git
 cd teleprompter
 swiftc teleprompter.swift -o teleprompter -framework Cocoa -framework WebKit -framework Speech -framework AVFoundation
 ```
