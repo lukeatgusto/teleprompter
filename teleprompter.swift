@@ -188,7 +188,7 @@ func buildHTMLPage(markdownContent: String) -> String {
             background: rgba(0, 0, 0, 0.7);
             color: #f0f0f0;
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
-            font-size: 28px;
+            font-size: 20px;
             line-height: 1.6;
             padding: 30px 50px;
             flex: 1;
@@ -359,14 +359,16 @@ func buildHTMLPage(markdownContent: String) -> String {
     <body>
         <div id="top-bar">
             <div class="left">
-                <button class="bar-btn" onclick="window.webkit.messageHandlers.openFile.postMessage('')" title="Open file">Open</button>
-                <button class="bar-btn" id="mic-btn" onclick="window.webkit.messageHandlers.toggleMic.postMessage('')" title="Voice-driven scroll">Mic</button>
-                <button class="bar-btn" id="scroll-btn" onclick="window.webkit.messageHandlers.toggleManualScroll.postMessage('')" title="Manual scroll mode">Scroll</button>
+                <button class="bar-btn" onclick="window.webkit.messageHandlers.openFile.postMessage('')" title="Open file">&#x1F4C2;</button>
+                <button class="bar-btn" id="mic-btn" onclick="window.webkit.messageHandlers.toggleMic.postMessage('')" title="Voice-driven scroll">&#x1F3A4;</button>
+                <button class="bar-btn" id="scroll-btn" onclick="window.webkit.messageHandlers.toggleManualScroll.postMessage('')" title="Manual scroll mode">&#x2195;</button>
             </div>
             <div class="right">
                 <span class="slider-label">opacity</span>
                 <input type="range" id="opacity-slider" min="5" max="95" value="70" oninput="setOpacity(this.value)">
-                <button class="bar-btn" id="color-toggle" onclick="toggleTextColor()" title="Toggle text color">A</button>
+                <button class="bar-btn" onclick="adjustFontSize(-2)" title="Smaller text" style="font-size:10px;padding:3px 6px;">A</button>
+                <button class="bar-btn" onclick="adjustFontSize(2)" title="Larger text" style="font-size:15px;font-weight:600;padding:3px 6px;">A</button>
+                <button class="bar-btn" id="color-toggle" onclick="toggleTextColor()" title="Toggle dark mode">&#x1F319;</button>
                 <button class="bar-btn" onclick="toggleHelp()" title="Keyboard shortcuts">?</button>
             </div>
         </div>
@@ -488,6 +490,10 @@ func buildHTMLPage(markdownContent: String) -> String {
                     showStatus('\\uD83C\\uDF99 Mic off');
                 }
             }
+
+            // Manual scroll on by default
+            document.getElementById('scroll-btn').classList.add('active');
+
             let lastScrollTarget = 0;
             function scrollToWord(index) {
                 // Mark previous words as spoken
@@ -546,7 +552,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var messageHandler: MessageHandler!
 
     // Click-through
-    var manualScrollEnabled = false
+    var manualScrollEnabled = true
+
+    let welcomeText = """
+    # Welcome to Teleprompter
+
+    ## Toolbar
+
+    - **\u{1F4C2}** — Open a markdown file
+    - **\u{1F3A4}** — Voice-driven scrolling that follows your speech
+    - **\u{2195}\u{FE0F}** — Toggle manual scrolling (trackpad/mouse)
+    - **A / A** — Decrease / increase text size
+    - **Opacity slider** — Adjust background transparency
+    - **\u{1F319}** — Toggle dark mode (black text for light backgrounds)
+    - **?** — Show all keyboard shortcuts
+
+    ## Getting Started
+
+    Click the folder icon above to open a markdown file, or press **O**.
+
+    The text area is click-through by default, so you can interact with windows behind the teleprompter. Toggle **\u{2195}\u{FE0F}** when you need to scroll manually.
+
+    Press **Space** to start auto-scrolling, and use the **arrow keys** to adjust speed.
+    """
     let toolbarHeight: CGFloat = 36 // HTML toolbar height
 
     // Speech recognition
@@ -558,7 +586,110 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var plainWords: [String] = []
     var wordPointer = 0
 
+    func makeAppIcon() -> NSImage {
+        let S: CGFloat = 512
+        let image = NSImage(size: NSSize(width: S, height: S))
+        image.lockFocus()
+
+        let ctx = NSGraphicsContext.current!.cgContext
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+        // Draw everything in a flipped coordinate system (Y=0 at top, like Canvas)
+        ctx.saveGState()
+        ctx.translateBy(x: 0, y: S)
+        ctx.scaleBy(x: 1, y: -1)
+
+        // All coordinates below: Y=0 is top, Y increases downward (matching the HTML canvas)
+        // Background
+        let bgPath = CGPath(roundedRect: CGRect(x: 0, y: 0, width: S, height: S), cornerWidth: S * 0.18, cornerHeight: S * 0.18, transform: nil)
+        ctx.addPath(bgPath)
+        ctx.clip()
+
+        let gradColors = [
+            CGColor(red: 0.83, green: 0.33, blue: 0.08, alpha: 1.0),
+            CGColor(red: 0.65, green: 0.19, blue: 0.04, alpha: 1.0)
+        ] as CFArray
+        let grad = CGGradient(colorsSpace: colorSpace, colors: gradColors, locations: [0.0, 1.0])!
+        ctx.drawLinearGradient(grad, start: CGPoint(x: S/2, y: 0), end: CGPoint(x: S/2, y: S), options: [])
+
+        ctx.resetClip()
+
+        // Text lines — all proportional to S, matching canvas exactly
+        let lineX = S * 0.19
+        let lineMaxX = S * 0.81
+        let lineStartY = S * 0.13
+        let lineSpacing = S * 0.082
+        let widths: [CGFloat] = [0.50, 0.85, 0.70, 0, 0.90, 0.55, 0.75, 0.60, 0.40]
+
+        for (i, wFrac) in widths.enumerated() {
+            if wFrac == 0 { continue }
+            let y = lineStartY + CGFloat(i) * lineSpacing
+            let progress = CGFloat(i) / CGFloat(widths.count - 1)
+
+            let alpha: CGFloat
+            if progress < 0.15 { alpha = 0.2 }
+            else if progress < 0.5 { alpha = 0.5 }
+            else { alpha = max(0.1, 0.5 - (progress - 0.5) * 1.2) }
+
+            let w = (lineMaxX - lineX) * wFrac
+            let h: CGFloat = i == 0 ? S * 0.016 : S * 0.011
+
+            ctx.addPath(CGPath(roundedRect: CGRect(x: lineX, y: y, width: w, height: h), cornerWidth: 2, cornerHeight: 2, transform: nil))
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: alpha * 0.9))
+            ctx.fillPath()
+        }
+
+        // T shape — proportional to S, matching canvas
+        let sc: CGFloat = 0.85
+        let cx = S / 2
+        let r: CGFloat = S * 0.012
+        let crossbarW = (210.0 / 256.0) * S * sc
+        let crossbarH = (44.0 / 256.0) * S * sc
+        let stemW = (40.0 / 256.0) * S * sc
+        let stemH = (155.0 / 256.0) * S * sc
+        let crossbarY = S * 0.22
+
+        let tColor = CGColor(red: 0.20, green: 0.07, blue: 0.02, alpha: 0.92)
+        let shadowColor = CGColor(red: 0, green: 0, blue: 0, alpha: 0.15)
+
+        // Helper to draw joined T path
+        func drawTPath(offsetX: CGFloat, offsetY: CGFloat) {
+            let ox = offsetX, oy = offsetY
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: cx - crossbarW/2 + r + ox, y: crossbarY + oy))
+            ctx.addLine(to: CGPoint(x: cx + crossbarW/2 - r + ox, y: crossbarY + oy))
+            ctx.addQuadCurve(to: CGPoint(x: cx + crossbarW/2 + ox, y: crossbarY + r + oy), control: CGPoint(x: cx + crossbarW/2 + ox, y: crossbarY + oy))
+            ctx.addLine(to: CGPoint(x: cx + crossbarW/2 + ox, y: crossbarY + crossbarH + oy))
+            ctx.addLine(to: CGPoint(x: cx + stemW/2 + ox, y: crossbarY + crossbarH + oy))
+            ctx.addLine(to: CGPoint(x: cx + stemW/2 + ox, y: crossbarY + crossbarH + stemH - r + oy))
+            ctx.addQuadCurve(to: CGPoint(x: cx + stemW/2 - r + ox, y: crossbarY + crossbarH + stemH + oy), control: CGPoint(x: cx + stemW/2 + ox, y: crossbarY + crossbarH + stemH + oy))
+            ctx.addLine(to: CGPoint(x: cx - stemW/2 + r + ox, y: crossbarY + crossbarH + stemH + oy))
+            ctx.addQuadCurve(to: CGPoint(x: cx - stemW/2 + ox, y: crossbarY + crossbarH + stemH - r + oy), control: CGPoint(x: cx - stemW/2 + ox, y: crossbarY + crossbarH + stemH + oy))
+            ctx.addLine(to: CGPoint(x: cx - stemW/2 + ox, y: crossbarY + crossbarH + oy))
+            ctx.addLine(to: CGPoint(x: cx - crossbarW/2 + ox, y: crossbarY + crossbarH + oy))
+            ctx.addLine(to: CGPoint(x: cx - crossbarW/2 + ox, y: crossbarY + r + oy))
+            ctx.addQuadCurve(to: CGPoint(x: cx - crossbarW/2 + r + ox, y: crossbarY + oy), control: CGPoint(x: cx - crossbarW/2 + ox, y: crossbarY + oy))
+            ctx.closePath()
+        }
+
+        // Shadow
+        drawTPath(offsetX: 3, offsetY: 3)
+        ctx.setFillColor(shadowColor)
+        ctx.fillPath()
+
+        // T
+        drawTPath(offsetX: 0, offsetY: 0)
+        ctx.setFillColor(tColor)
+        ctx.fillPath()
+
+        ctx.restoreGState()
+
+        image.unlockFocus()
+        return image
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.applicationIconImage = makeAppIcon()
         let screen = NSScreen.main!
         let width: CGFloat = 600
         let height: CGFloat = 800
@@ -567,16 +698,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         window = NSWindow(
             contentRect: NSRect(x: x, y: y, width: width, height: height),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = false
         window.level = .floating
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        window.title = "Teleprompter"
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // WebView with message handlers
@@ -606,14 +735,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return event
         }
 
-        // Open file picker if no content
+        // Show welcome text if no content
         if markdownContent.isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                guard let self = self else { return }
-                NSApplication.shared.activate(ignoringOtherApps: true)
-                self.window.makeKeyAndOrderFront(nil)
-                self.openFilePicker()
-            }
+            markdownContent = welcomeText
+            loadContent()
         }
 
         // Keyboard handling
@@ -751,6 +876,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let speechRecognizer = speechRecognizer, speechRecognizer.isAvailable else {
             webView.evaluateJavaScript("showStatus('Speech recognition unavailable')")
             return
+        }
+
+        // Disable manual scroll when mic is active
+        if manualScrollEnabled {
+            manualScrollEnabled = false
+            webView.evaluateJavaScript("setManualScroll(false)")
+            updateClickThrough()
         }
 
         SFSpeechRecognizer.requestAuthorization { [weak self] status in

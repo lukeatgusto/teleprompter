@@ -25,9 +25,12 @@ Include the version bump in the same commit as the changes, not as a separate co
 ## Build & Test
 
 ```bash
-swiftc teleprompter.swift -o teleprompter -framework Cocoa -framework WebKit -framework Speech -framework AVFoundation
-./teleprompter test.md
+mkdir -p ~/.local/bin
+swiftc teleprompter.swift -o ~/.local/bin/teleprompter -framework Cocoa -framework WebKit -framework Speech -framework AVFoundation
+~/.local/bin/teleprompter test.md
 ```
+
+**Note:** Do not run the compiled binary from `~/Documents` — macOS TCC protections will SIGKILL it. Always compile to `~/.local/bin/` or `/tmp/`.
 
 ## Rules
 
