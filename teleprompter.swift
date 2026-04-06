@@ -180,15 +180,18 @@ func buildHTMLPage(markdownContent: String) -> String {
             height: 100%;
             overflow: hidden;
         }
+        body {
+            display: flex;
+            flex-direction: column;
+        }
         #container {
             background: rgba(0, 0, 0, 0.7);
             color: #f0f0f0;
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
             font-size: 28px;
             line-height: 1.6;
-            padding: 40px 50px;
-            padding-top: 50px;
-            height: 100%;
+            padding: 30px 50px;
+            flex: 1;
             overflow-y: auto;
             -webkit-font-smoothing: antialiased;
         }
@@ -214,16 +217,17 @@ func buildHTMLPage(markdownContent: String) -> String {
 
         /* Top bar */
         #top-bar {
-            position: fixed;
-            top: 0; left: 0; right: 0;
+            position: sticky;
+            top: 0;
             height: 36px;
-            background: linear-gradient(to bottom, rgba(255,255,255,0.1), rgba(255,255,255,0.03));
+            background: rgba(0,0,0,0.85);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
             z-index: 100;
             display: flex;
             align-items: center;
             justify-content: space-between;
             padding: 0 10px;
-            -webkit-app-region: drag;
+            flex-shrink: 0;
         }
         #top-bar .left, #top-bar .right {
             display: flex;
@@ -357,6 +361,7 @@ func buildHTMLPage(markdownContent: String) -> String {
             <div class="left">
                 <button class="bar-btn" onclick="window.webkit.messageHandlers.openFile.postMessage('')" title="Open file">Open</button>
                 <button class="bar-btn" id="mic-btn" onclick="window.webkit.messageHandlers.toggleMic.postMessage('')" title="Voice-driven scroll">Mic</button>
+                <button class="bar-btn" id="scroll-btn" onclick="window.webkit.messageHandlers.toggleManualScroll.postMessage('')" title="Manual scroll mode">Scroll</button>
             </div>
             <div class="right">
                 <span class="slider-label">opacity</span>
@@ -379,6 +384,7 @@ func buildHTMLPage(markdownContent: String) -> String {
                 <div class="shortcut-row"><span class="label">Reset to top</span><span class="key">R</span></div>
                 <div class="shortcut-row"><span class="label">Mirror mode</span><span class="key">M</span></div>
                 <div class="shortcut-row"><span class="label">Toggle mic</span><span class="key">V</span></div>
+                <div class="shortcut-row"><span class="label">Manual scroll</span><span class="key">S</span></div>
                 <div class="shortcut-row"><span class="label">Open file</span><span class="key">O</span></div>
                 <div class="shortcut-row"><span class="label">Quit</span><span class="key">Q</span></div>
                 <div id="help-dismiss">Click anywhere to close</div>
@@ -389,6 +395,7 @@ func buildHTMLPage(markdownContent: String) -> String {
             <div id="content">\(bodyHTML)</div>
         </div>
         <div id="status"></div>
+        <div id="resize-handle"></div>
 
         <script>
             const container = document.getElementById('container');
@@ -457,6 +464,10 @@ func buildHTMLPage(markdownContent: String) -> String {
                 document.getElementById('color-toggle').classList.toggle('active', darkMode);
                 showStatus(darkMode ? 'Black text' : 'White text');
             }
+            function setManualScroll(enabled) {
+                document.getElementById('scroll-btn').classList.toggle('active', enabled);
+                showStatus(enabled ? 'Manual scroll ON' : 'Manual scroll OFF');
+            }
             function toggleHelp() {
                 document.getElementById('help-overlay').classList.toggle('visible');
             }
@@ -511,22 +522,6 @@ func buildHTMLPage(markdownContent: String) -> String {
     """
 }
 
-// MARK: - Draggable View
-
-class DragHandleView: NSView {
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let local = convert(point, from: superview)
-        if local.x < 120 || local.x > bounds.width - 260 {
-            return nil
-        }
-        return self
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
-    }
-}
-
 // MARK: - Script Message Handler
 
 class MessageHandler: NSObject, WKScriptMessageHandler {
@@ -536,6 +531,8 @@ class MessageHandler: NSObject, WKScriptMessageHandler {
             delegate?.openFilePicker()
         } else if message.name == "toggleMic" {
             delegate?.toggleSpeechRecognition()
+        } else if message.name == "toggleManualScroll" {
+            delegate?.toggleManualScroll()
         }
     }
 }
@@ -547,6 +544,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var webView: WKWebView!
     var markdownContent: String = ""
     var messageHandler: MessageHandler!
+
+    // Click-through
+    var manualScrollEnabled = false
+    let toolbarHeight: CGFloat = 36 // HTML toolbar height
 
     // Speech recognition
     var speechRecognizer: SFSpeechRecognizer?
@@ -566,17 +567,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         window = NSWindow(
             contentRect: NSRect(x: x, y: y, width: width, height: height),
-            styleMask: [.resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = false
         window.level = .floating
-        window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.isMovableByWindowBackground = true
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         // WebView with message handlers
@@ -586,31 +584,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         messageHandler.delegate = self
         config.userContentController.add(messageHandler, name: "openFile")
         config.userContentController.add(messageHandler, name: "toggleMic")
+        config.userContentController.add(messageHandler, name: "toggleManualScroll")
 
         webView = WKWebView(frame: window.contentView!.bounds, configuration: config)
         webView.autoresizingMask = [.width, .height]
         webView.setValue(false, forKey: "drawsBackground")
         window.contentView!.addSubview(webView)
 
-        // Native drag handle
-        let dragHandle = DragHandleView(frame: NSRect(x: 0, y: window.contentView!.bounds.height - 36, width: window.contentView!.bounds.width, height: 36))
-        dragHandle.autoresizingMask = [.width, .minYMargin]
-        dragHandle.wantsLayer = true
-        window.contentView!.addSubview(dragHandle, positioned: .above, relativeTo: webView)
-
         loadContent()
 
-        window.ignoresMouseEvents = true
         window.makeKeyAndOrderFront(nil)
 
-        // Mouse tracking for click-through
-        let edgeMargin: CGFloat = 8
-        let topBarHeight: CGFloat = 36
+        // Mouse tracking for click-through (content area only)
         NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-            self?.updateClickThrough(edgeMargin: edgeMargin, topBarHeight: topBarHeight)
+            self?.updateClickThrough()
         }
         NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
-            self?.updateClickThrough(edgeMargin: edgeMargin, topBarHeight: topBarHeight)
+            self?.updateClickThrough()
             return event
         }
 
@@ -665,6 +655,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case 9: // V
                 self.toggleSpeechRecognition()
                 return nil
+            case 1: // S
+                self.toggleManualScroll()
+                return nil
             default:
                 return event
             }
@@ -682,19 +675,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         webView.loadHTMLString(htmlString, baseURL: nil)
     }
 
-    func updateClickThrough(edgeMargin: CGFloat, topBarHeight: CGFloat) {
+    func updateClickThrough() {
+        // Manual scroll mode: never click-through
+        if manualScrollEnabled {
+            window.ignoresMouseEvents = false
+            return
+        }
+
         let mouseScreen = NSEvent.mouseLocation
         let frame = window.frame
+
+        // Outside window: click-through
         guard frame.contains(mouseScreen) else {
             window.ignoresMouseEvents = true
             return
         }
-        let localX = mouseScreen.x - frame.origin.x
+
         let localY = mouseScreen.y - frame.origin.y
-        let nearTop = localY > frame.height - topBarHeight
-        let nearEdge = localX < edgeMargin || localX > frame.width - edgeMargin
-            || localY < edgeMargin || localY > frame.height - edgeMargin
-        window.ignoresMouseEvents = !(nearTop || nearEdge)
+        let contentViewHeight = window.contentView?.bounds.height ?? frame.height
+
+        // The toolbar is at the TOP of the contentView (high Y values in flipped WebView,
+        // but in window coords the top of contentView is the highest localY within contentView).
+        // The native titlebar sits above contentView.
+        // localY is from bottom of window frame.
+        // Content area starts at bottom and goes up to (contentViewHeight - toolbarHeight) from bottom of contentView.
+        // But localY includes the titlebar. The contentView starts below the titlebar.
+
+        let titlebarHeight = frame.height - contentViewHeight
+        let inTitlebar = localY > frame.height - titlebarHeight
+        let inToolbar = localY > frame.height - titlebarHeight - toolbarHeight
+
+        // Titlebar and toolbar: interactive. Content area: click-through.
+        window.ignoresMouseEvents = !(inTitlebar || inToolbar)
+    }
+
+    func toggleManualScroll() {
+        manualScrollEnabled = !manualScrollEnabled
+        webView.evaluateJavaScript("setManualScroll(\(manualScrollEnabled))")
+        updateClickThrough()
     }
 
     func openFilePicker() {
