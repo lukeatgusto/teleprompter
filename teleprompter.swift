@@ -567,13 +567,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         window = NSWindow(
             contentRect: NSRect(x: x, y: y, width: width, height: height),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.isOpaque = false
         window.backgroundColor = .clear
+        window.hasShadow = false
         window.level = .floating
+        window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
