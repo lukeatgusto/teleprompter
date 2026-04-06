@@ -1,6 +1,6 @@
 ---
 name: teleprompter
-description: Use when user says "teleprompter", wants to install or run the teleprompter overlay app, or says /teleprompter. Handles download, compile, install, and launch of the macOS teleprompter tool.
+description: Use when user says "teleprompter", wants to present or read a script, asks to display markdown as an overlay, wants a floating text reader, says "open this as a teleprompter", wants to practice a speech or presentation, needs a prompter for a video call, or says /teleprompter. Handles download, compile, install, and launch of the macOS teleprompter overlay tool.
 ---
 
 # Teleprompter
