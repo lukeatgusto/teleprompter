@@ -6,27 +6,20 @@ import AVFoundation
 // MARK: - Text extraction for speech matching
 
 func extractPlainWords(_ markdown: String) -> [String] {
-    // Strip markdown syntax to get plain words for matching
-    var text = markdown
-    // Remove code blocks
-    let codeBlockPattern = try! NSRegularExpression(pattern: "```[\\s\\S]*?```", options: [])
-    text = codeBlockPattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
-    // Remove inline code
-    let inlineCodePattern = try! NSRegularExpression(pattern: "`[^`]+`", options: [])
-    text = inlineCodePattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
-    // Remove markdown symbols
-    let symbolPattern = try! NSRegularExpression(pattern: "[#*_\\[\\]()>|~`]", options: [])
-    text = symbolPattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
-    // Remove link URLs
-    let urlPattern = try! NSRegularExpression(pattern: "https?://\\S+", options: [])
-    text = urlPattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
-    // Remove numbered list prefixes
-    let olPattern = try! NSRegularExpression(pattern: "^\\d+\\.", options: .anchorsMatchLines)
-    text = olPattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
-    // Split into words, lowercase, remove punctuation for matching
-    return text.components(separatedBy: .whitespacesAndNewlines)
-        .map { $0.trimmingCharacters(in: .punctuationCharacters).lowercased() }
-        .filter { !$0.isEmpty }
+    // Generate the HTML with word spans, then extract span contents
+    // This guarantees word indices match between plainWords and the HTML
+    let html = markdownToHTML(markdown, wrapWords: true)
+    let spanPattern = try! NSRegularExpression(pattern: "<span class=\"w\" id=\"w\\d+\">([^<]+)</span>")
+    let matches = spanPattern.matches(in: html, range: NSRange(html.startIndex..., in: html))
+    return matches.map { match in
+        let range = Range(match.range(at: 1), in: html)!
+        return String(html[range])
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .trimmingCharacters(in: .punctuationCharacters)
+            .lowercased()
+    }.filter { !$0.isEmpty }
 }
 
 // MARK: - Markdown to HTML (with word spans)
@@ -798,6 +791,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func loadContent() {
         plainWords = extractPlainWords(markdownContent)
         wordPointer = 0
+        missCount = 0
         let htmlString = buildHTMLPage(markdownContent: markdownContent)
         webView.loadHTMLString(htmlString, baseURL: nil)
     }
