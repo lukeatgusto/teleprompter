@@ -1,7 +1,7 @@
 {
   "name": "teleprompter",
   "description": "Translucent teleprompter overlay for macOS — reads markdown, voice-driven scrolling, click-through transparency. Install, update, and launch from Claude Code.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": { "name": "Luke Zeller" },
   "repository": "https://github.com/lukeatgusto/teleprompter",
   "license": "MIT"

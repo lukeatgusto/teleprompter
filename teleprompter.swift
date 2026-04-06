@@ -616,8 +616,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Open file picker if no content
         if markdownContent.isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.openFilePicker()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self = self else { return }
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                self.window.makeKeyAndOrderFront(nil)
+                self.openFilePicker()
             }
         }
 
